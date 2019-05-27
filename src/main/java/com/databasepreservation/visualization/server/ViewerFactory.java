@@ -51,10 +51,12 @@ public class ViewerFactory {
   private static ViewerConfiguration configuration;
   private static boolean instantiated = false;
 
-  private static void instantiate() {
-    configuration = ViewerConfiguration.getInstance();
-    instantiateSolrCloud();
-    instantiated = true;
+  private static synchronized void instantiate() {
+    if(!instantiated) {
+      configuration = ViewerConfiguration.getInstance();
+      instantiateSolrCloud();
+      instantiated = true;
+    }
   }
 
   private static void instantiateSolrCloud() {
@@ -274,23 +276,17 @@ public class ViewerFactory {
   }
 
   public static SolrManager getSolrManager() {
-    if (!instantiated) {
-      instantiate();
-    }
+    instantiate();
     return solrManager;
   }
 
   public static CloudSolrClient getSolrClient() {
-    if (!instantiated) {
-      instantiate();
-    }
+    instantiate();
     return cloudSolrClient;
   }
 
   public static ViewerConfiguration getViewerConfiguration() {
-    if (!instantiated) {
-      instantiate();
-    }
+    instantiate();
     return configuration;
   }
 }
