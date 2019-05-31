@@ -10,8 +10,6 @@ package com.databasepreservation.visualization.server.index.schema.collections;
 import static com.databasepreservation.visualization.shared.ViewerConstants.SOLR_INDEX_ROW_COLLECTION_NAME_PREFIX;
 import static com.databasepreservation.visualization.shared.ViewerConstants.SOLR_ROWS_TABLE_ID;
 
-import java.io.IOException;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
@@ -20,13 +18,21 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import com.databasepreservation.utils.JodaUtils;
+import com.databasepreservation.visualization.exceptions.ViewerException;
+import com.databasepreservation.visualization.server.index.factory.SolrClientFactory;
+import com.databasepreservation.visualization.server.index.schema.AbstractSolrCollection;
+import com.databasepreservation.visualization.server.index.schema.CopyField;
+import com.databasepreservation.visualization.server.index.schema.Field;
+import com.databasepreservation.visualization.server.index.schema.SolrBootstrapUtils;
+import com.databasepreservation.visualization.server.index.schema.SolrCollection;
 import com.databasepreservation.visualization.server.index.schema.SolrRowsCollectionRegistry;
-import org.apache.solr.client.solrj.SolrServerException;
-import org.apache.solr.client.solrj.impl.CloudSolrClient;
-import org.apache.solr.client.solrj.request.CollectionAdminRequest;
-import org.apache.solr.client.solrj.response.CollectionAdminResponse;
+import com.databasepreservation.visualization.server.index.utils.SolrUtils;
+import com.databasepreservation.visualization.shared.ViewerConstants;
+import com.databasepreservation.visualization.shared.ViewerStructure.ViewerCell;
+import com.databasepreservation.visualization.shared.ViewerStructure.ViewerRow;
+
 import org.apache.solr.common.SolrDocument;
-import org.apache.solr.common.SolrException;
 import org.apache.solr.common.SolrInputDocument;
 import org.joda.time.DateTime;
 import org.roda.core.data.exceptions.AuthorizationDeniedException;
@@ -35,19 +41,6 @@ import org.roda.core.data.exceptions.NotFoundException;
 import org.roda.core.data.exceptions.RequestNotValidException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.databasepreservation.utils.JodaUtils;
-import com.databasepreservation.visualization.exceptions.ViewerException;
-import com.databasepreservation.visualization.server.ViewerFactory;
-import com.databasepreservation.visualization.server.index.schema.AbstractSolrCollection;
-import com.databasepreservation.visualization.server.index.schema.CopyField;
-import com.databasepreservation.visualization.server.index.schema.Field;
-import com.databasepreservation.visualization.server.index.schema.SolrBootstrapUtils;
-import com.databasepreservation.visualization.server.index.schema.SolrCollection;
-import com.databasepreservation.visualization.server.index.utils.SolrUtils;
-import com.databasepreservation.visualization.shared.ViewerConstants;
-import com.databasepreservation.visualization.shared.ViewerStructure.ViewerCell;
-import com.databasepreservation.visualization.shared.ViewerStructure.ViewerRow;
 
 public class RowsCollection extends AbstractSolrCollection<ViewerRow> {
   private static final Logger LOGGER = LoggerFactory.getLogger(RowsCollection.class);
@@ -92,7 +85,7 @@ public class RowsCollection extends AbstractSolrCollection<ViewerRow> {
 
   @Override
   public SolrInputDocument toSolrDocument(ViewerRow row) throws ViewerException, RequestNotValidException,
-    GenericException, NotFoundException, AuthorizationDeniedException {
+      GenericException, NotFoundException, AuthorizationDeniedException {
 
     SolrInputDocument doc = super.toSolrDocument(row);
 
@@ -150,32 +143,17 @@ public class RowsCollection extends AbstractSolrCollection<ViewerRow> {
   }
 
   public void createRowsCollection() {
-    CloudSolrClient cloudSolrClient = ViewerFactory.getSolrClient();
-
-    try {
-      Path configPath = ViewerFactory.createTempSolrConfigurationDir();
-
-      LOGGER.info("Creating SOLR collection {}", getIndexName());
-
-      int numShards = ViewerFactory.getEnvInt("SOLR_NUM_SHARDS", 1);
-      int numReplicas = ViewerFactory.getEnvInt("SOLR_REPLICATION_FACTOR", 1);
-
-      cloudSolrClient.getZkStateReader().getZkClient().upConfig(configPath, getIndexName());
-
-      CollectionAdminRequest.Create createCollection = CollectionAdminRequest.createCollection(getIndexName(),
-        getIndexName(), numShards, numReplicas);
-      createCollection.setMaxShardsPerNode(ViewerFactory.getEnvInt("SOLR_MAX_SHARDS_PER_NODE", 1));
-      createCollection.setAutoAddReplicas(ViewerFactory.getEnvBoolean("SOLR_AUTO_ADD_REPLICAS", false));
-
-      CollectionAdminResponse response = createCollection.process(cloudSolrClient);
-      if (response.isSuccess()) {
-        SolrBootstrapUtils.bootstrapRowsCollection(cloudSolrClient, this);
-        SolrRowsCollectionRegistry.register(this);
-      } else {
-        LOGGER.error("Could not create collection {}: {}", getIndexName(), response.getErrorMessages());
+    LOGGER.info("Creating SOLR collection {}", getIndexName());
+    if (SolrClientFactory.get().createCollection(getIndexName())) {
+      try {
+        SolrBootstrapUtils.bootstrapRowsCollection(SolrClientFactory.get().getSolrClient(), this);
+      } catch (ViewerException e) {
+        LOGGER.error("Could not create collection " + getIndexName(), e);
       }
-    } catch (SolrServerException | SolrException | IOException | ViewerException e) {
-      LOGGER.error("Error creating collection {}", getIndexName(), e);
+      SolrRowsCollectionRegistry.register(this);
+    } else {
+      LOGGER.error("Could not create collection {}", getIndexName());
     }
+
   }
 }
